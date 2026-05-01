@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFA → DFA · ParseLab</title>
+<meta name="description" content="Convert an ε-NFA to a DFA using the subset construction algorithm. Visualises the powerset construction step by step.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* ── DFA diagram ── */
+  .dfa-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem;
+  }
+  .dfa-svg-wrap {
+    overflow-x: auto; padding: 1.25rem;
+    display: flex; align-items: center; justify-content: center; min-height: 100px;
+  }
+  .dfa-svg-wrap svg { display: block; width: 100%; height: auto; max-height: 480px; }
+  .dfa-meta {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+    padding: 0.65rem 1.25rem; border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .dfa-meta strong { color: var(--text); }
+
+  /* ── Construction table ── */
+  .construct-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--mono); font-size: 0.82rem;
+  }
+  .construct-table th {
+    padding: 0.45rem 0.9rem; text-align: left;
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+    background: var(--bg); white-space: nowrap;
+  }
+  .construct-table th.sym-col { text-align: center; }
+  .construct-table td {
+    padding: 0.42rem 0.9rem; border-bottom: 1px solid var(--border);
+    color: var(--text); vertical-align: middle;
+  }
+  .construct-table tr:last-child td { border-bottom: none; }
+  .construct-table tr.is-start td:first-child { color: var(--accent); font-weight: 700; }
+  .construct-table .nfa-set { color: var(--muted); font-size: 0.78rem; }
+  .construct-table .sym-cell { text-align: center; }
+  .construct-table .sym-cell.dead { color: var(--muted); }
+  .col-tag {
+    font-size: 0.68rem; font-family: -apple-system, sans-serif;
+    padding: 0.1rem 0.45rem; border-radius: 999px; font-weight: 600;
+  }
+  .tag-start  { background: var(--accent-soft); color: var(--accent); }
+  .tag-accept { background: rgba(34,197,94,0.1); color: #16a34a; }
+  [data-theme="dark"] .tag-accept { color: #4ade80; }
+
+  /* ── NFA textarea ── */
+  .nfa-input {
+    font-family: var(--mono); font-size: 0.88rem; line-height: 1.7;
+  }
+
+  /* ── pipeline hint ── */
+  .pipeline-hint {
+    font-size: 0.8rem; color: var(--muted);
+    margin-bottom: 1.25rem; line-height: 1.6;
+  }
+  .pipeline-hint a { color: var(--accent); text-decoration: none; }
+  .pipeline-hint a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>NFA → DFA</h1>
+  <p class="subtitle">Convert an ε-NFA to a DFA using the subset (powerset) construction.</p>
+
+  <div class="panel">
+    <h2>NFA transitions</h2>
+    <p class="pipeline-hint">
+      Use the <a href="/regex/">Regex → NFA</a> tool to generate an NFA, then click
+      <strong>Copy for NFA→DFA</strong> in the transition table to paste it here.
+    </p>
+    <textarea id="nfaInput" class="nfa-input" rows="10" spellcheck="false" autocomplete="off"
+      placeholder="start: 0&#10;accept: 10&#10;0 ε 1&#10;0 ε 7&#10;1 ε 2&#10;..."></textarea>
+    <p class="syntax-hint">
+      One line per transition: <code>from symbol to</code>.
+      Use <code>ε</code> or <code>eps</code> for epsilon.
+      Declare <code>start: q</code> and <code>accept: q</code> at the top.
+      Multiple accept states: <code>accept: q3, q7</code>.
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="classic">(a|b)*abb</button>
+      <button class="example-btn" data-ex="simple">a*b</button>
+      <button class="example-btn" data-ex="multi">multi-accept</button>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn" id="convertBtn">Convert to DFA</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3/lib/viz-standalone.js"></script>
+<script src="../shared/automata-core.js"></script>
+<script>
+const AutomataCore = globalThis.ParseLabAutomataCore;
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── DOT generation ───────────────────────────────────────────────────────────
+
+function toDot(dfa) {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  const C = dark ? {
+    bg:    'transparent',
+    node:  { fill:'#1e293b', stroke:'#475569', font:'#cbd5e1' },
+    start: { fill:'#1e3a5f', stroke:'#3b82f6', font:'#93c5fd' },
+    acc:   { fill:'#172554', stroke:'#60a5fa', font:'#93c5fd' },
+    arr:   '#3b82f6',
+    edge:  { stroke:'#3b82f6', font:'#60a5fa' },
+  } : {
+    bg:    'transparent',
+    node:  { fill:'#f8fafc', stroke:'#cbd5e1', font:'#334155' },
+    start: { fill:'#eff6ff', stroke:'#93c5fd', font:'#1e40af' },
+    acc:   { fill:'#dbeafe', stroke:'#2563eb', font:'#1d4ed8' },
+    arr:   '#2563eb',
+    edge:  { stroke:'#2563eb', font:'#1d4ed8' },
+  };
+
+  const { start, states, transitions } = dfa;
+
+  // Merge parallel edges
+  const eMap = new Map();
+  for (const t of transitions) {
+    const k = `${t.from}→${t.to}`;
+    if (!eMap.has(k)) eMap.set(k, { from: t.from, to: t.to, syms: [] });
+    eMap.get(k).syms.push(t.sym);
+  }
+
+  const lines = [
+    `digraph {`,
+    `  bgcolor="${C.bg}"`,
+    `  rankdir=LR`,
+    `  node [fontname="Courier" fontsize=12]`,
+    `  edge [fontname="Courier" fontsize=11]`,
+    ``,
+    `  __i [shape=point width=0.2 color="${C.arr}"]`,
+    `  __i -> D${start} [color="${C.arr}" penwidth=2 arrowsize=0.9]`,
+    ``
+  ];
+
+  for (const ds of states) {
+    const isAcc = ds.isAccept;
+    const isSt  = ds.id === start;
+    const col   = isAcc ? C.acc : isSt ? C.start : C.node;
+    const shape = isAcc ? 'doublecircle' : 'circle';
+    const pw    = isAcc ? 2.5 : isSt ? 1.8 : 1.2;
+    const nfaLabel = [...ds.nfaStates].sort().join(',');
+    const label = `D${ds.id}\\n{${nfaLabel}}`;
+    lines.push(
+      `  D${ds.id} [label="${label}" shape=${shape} style=filled ` +
+      `fillcolor="${col.fill}" color="${col.stroke}" fontcolor="${col.font}" penwidth=${pw}]`
+    );
+  }
+  lines.push('');
+
+  for (const { from, to, syms } of eMap.values()) {
+    const label = syms.sort().join(', ').replace(/"/g, '\\"');
+    lines.push(
+      `  D${from} -> D${to} [label="${label}" ` +
+      `color="${C.edge.stroke}" fontcolor="${C.edge.font}" penwidth=1.8 arrowsize=0.9]`
+    );
+  }
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ─── Render construction table ────────────────────────────────────────────────
+
+function renderTable(dfa) {
+  const { start, states, transitions, symbols } = dfa;
+
+  // Build lookup: from → sym → to
+  const transMap = new Map();
+  for (const t of transitions) {
+    if (!transMap.has(t.from)) transMap.set(t.from, new Map());
+    transMap.get(t.from).set(t.sym, t.to);
+  }
+
+  let html = `<div class="table-wrap"><table class="construct-table"><thead><tr>
+    <th>DFA state</th>
+    <th>NFA states</th>
+    <th></th>
+    ${symbols.map(s => `<th class="sym-col">${esc(s)}</th>`).join('')}
+  </tr></thead><tbody>`;
+
+  for (const ds of states) {
+    const nfaStr  = `{${[...ds.nfaStates].sort().join(', ')}}`;
+    const tags    = [
+      ds.id === start  ? `<span class="col-tag tag-start">start</span>`  : '',
+      ds.isAccept      ? `<span class="col-tag tag-accept">accept</span>` : ''
+    ].join(' ');
+    const symCells = symbols.map(sym => {
+      const tid = transMap.get(ds.id)?.get(sym);
+      return `<td class="sym-cell${tid === undefined ? ' dead' : ''}">${tid !== undefined ? `D${tid}` : '—'}</td>`;
+    }).join('');
+    html += `<tr>
+      <td><strong>D${ds.id}</strong></td>
+      <td class="nfa-set">${esc(nfaStr)}</td>
+      <td>${tags}</td>
+      ${symCells}
+    </tr>`;
+  }
+
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+// ─── Examples ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = {
+  classic: `start: 0
+accept: 10
+0 ε 1
+0 ε 7
+1 ε 2
+1 ε 4
+2 a 3
+3 ε 6
+4 b 5
+5 ε 6
+6 ε 1
+6 ε 7
+7 a 8
+8 b 9
+9 b 10`,
+
+  simple: `start: 0
+accept: 3
+0 ε 1
+0 ε 3
+1 a 1
+1 ε 2
+2 b 3`,
+
+  multi: `start: 0
+accept: 2, 4
+0 a 1
+0 a 3
+1 b 2
+3 c 4`,
+};
+
+document.querySelectorAll('.example-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    document.getElementById('nfaInput').value = EXAMPLES[btn.dataset.ex];
+    run();
+  })
+);
+
+// ─── Viz.js ───────────────────────────────────────────────────────────────────
+
+let vizInst = null;
+Viz.instance().then(v => { vizInst = v; }).catch(e => console.error('Viz.js failed', e));
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('convertBtn').addEventListener('click', run);
+
+async function run() {
+  const text  = document.getElementById('nfaInput').value.trim();
+  const outEl = document.getElementById('output');
+  if (!text) { outEl.innerHTML = ''; return; }
+
+  let nfa;
+  try { nfa = AutomataCore.parseNFA(text); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+
+  const dfa = AutomataCore.subsetConstruction(nfa);
+
+  if (!vizInst) {
+    outEl.innerHTML = `<div class="error-box">Visualization library loading — please try again.</div>`;
+    return;
+  }
+
+  let svgEl;
+  try { svgEl = vizInst.renderSVGElement(toDot(dfa)); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">Render error: ${esc(String(e))}</div>`; return; }
+
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+  svgEl.style.cssText = 'display:block;width:100%;height:auto;';
+
+  const acceptCount = dfa.states.filter(s => s.isAccept).length;
+
+  outEl.innerHTML = `<div class="section-hd">DFA</div>`;
+
+  const card = document.createElement('div');
+  card.className = 'dfa-card';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'dfa-svg-wrap';
+  wrap.appendChild(svgEl);
+  card.appendChild(wrap);
+
+  card.insertAdjacentHTML('beforeend', `
+    <div class="dfa-meta">
+      <span><strong>${dfa.states.length}</strong> states</span>
+      <span><strong>${dfa.transitions.length}</strong> transitions</span>
+      <span><strong>${dfa.symbols.length}</strong> symbol${dfa.symbols.length !== 1 ? 's' : ''}: ${dfa.symbols.map(esc).join(', ')}</span>
+      <span><strong>${acceptCount}</strong> accept state${acceptCount !== 1 ? 's' : ''}</span>
+    </div>
+  `);
+  outEl.appendChild(card);
+
+  outEl.insertAdjacentHTML('beforeend', `<div class="section-hd">Subset Construction</div>`);
+  outEl.insertAdjacentHTML('beforeend', renderTable(dfa));
+  outEl.insertAdjacentHTML('beforeend', `
+    <p style="font-size:0.78rem;color:var(--muted);margin-top:0.6rem;line-height:1.6;">
+      Each DFA state is a set of NFA states reachable via ε-closure.
+      Transitions to the empty set (dead/trap state) are omitted.
+      A DFA state is an accept state if it contains any NFA accept state.
+    </p>
+  `);
+
+  // Copy for Minimization button
+  const dfaText = AutomataCore.toDFAText(dfa);
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn secondary';
+  copyBtn.textContent = 'Copy for Minimization →';
+  const copyWrap = document.createElement('div');
+  copyWrap.style.cssText = 'margin-top:0.75rem;';
+  copyWrap.appendChild(copyBtn);
+  outEl.appendChild(copyWrap);
+
+  copyBtn.addEventListener('click', async function() {
+    try {
+      await navigator.clipboard.writeText(dfaText);
+      this.textContent = 'Copied ✓';
+      setTimeout(() => { this.textContent = 'Copy for Minimization →'; }, 1800);
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = dfaText;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      this.textContent = 'Copied ✓';
+      setTimeout(() => { this.textContent = 'Copy for Minimization →'; }, 1800);
+    }
+  });
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

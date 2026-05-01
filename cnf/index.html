@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CFG → CNF · ParseLab</title>
+<meta name="description" content="Convert a context-free grammar to Chomsky Normal Form, step by step.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* ── Step cards ── */
+  .steps { margin-top: 0.25rem; }
+  .step  { margin-bottom: 0.75rem; }
+
+  .step-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  .step-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.85rem 1.25rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .step-num {
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 0.06em;
+    color: var(--muted); font-family: var(--mono);
+  }
+  .step-name {
+    font-size: 0.9rem; font-weight: 600; flex: 1;
+  }
+  .step-badge {
+    font-size: 0.72rem; font-weight: 600;
+    padding: 0.15rem 0.6rem; border-radius: 999px;
+    letter-spacing: 0.03em;
+  }
+  .step-badge.applied {
+    background: var(--accent-soft); color: var(--accent);
+  }
+  .step-badge.skipped {
+    background: var(--bg); color: var(--muted);
+    border: 1px solid var(--border);
+  }
+
+  .step-body { padding: 1rem 1.25rem; }
+
+  .step-desc {
+    font-size: 0.875rem; color: var(--muted);
+    margin-bottom: 0.85rem; line-height: 1.55;
+  }
+  .step-desc:last-child { margin-bottom: 0; }
+
+  .change-group { margin-bottom: 0.75rem; }
+  .change-group:last-child { margin-bottom: 0; }
+  .change-label {
+    font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.07em; color: var(--muted);
+    margin-bottom: 0.35rem;
+  }
+  .change-rule {
+    font-family: var(--mono); font-size: 0.875rem;
+    padding: 0.15rem 0; line-height: 1.7;
+    display: flex; align-items: baseline; gap: 0.5rem;
+  }
+  .change-rule.removed { color: var(--muted); text-decoration: line-through; }
+  .change-rule.added   { color: var(--text); }
+  .change-rule .hint   { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 0.75rem; color: var(--muted); text-decoration: none; }
+
+  .nullable-list {
+    font-family: var(--mono); font-size: 0.875rem;
+    color: var(--accent); margin-bottom: 0.75rem;
+  }
+
+  /* ── Result ── */
+  .result-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem 1.5rem;
+    position: relative;
+  }
+  .result-copy {
+    position: absolute; top: 1rem; right: 1rem;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.3rem 0.7rem; font-size: 0.78rem; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .result-copy:hover { color: var(--accent); border-color: var(--accent); }
+  .grammar-rule {
+    display: flex; gap: 0.65rem;
+    font-family: var(--mono); font-size: 0.9rem;
+    padding: 0.22rem 0; align-items: baseline;
+  }
+  .grammar-rule .lhs { text-align: right; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .grammar-rule .arr { color: var(--muted); flex-shrink: 0; }
+  .grammar-rule .rhs { color: var(--text); }
+  .grammar-rule .sep { color: var(--muted); margin: 0 0.3rem; }
+  .copy-confirm { color: var(--success); font-size: 0.82rem; margin-left: 0.5rem; opacity: 0; transition: opacity 0.3s; }
+
+  .status { margin-bottom: 1rem; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>CFG → CNF</h1>
+  <p class="subtitle">Convert a context-free grammar to Chomsky Normal Form in five steps.</p>
+
+  <div class="panel">
+    <h2>Grammar</h2>
+    <textarea id="grammarInput" spellcheck="false" autocomplete="off" placeholder="S -> A B | ε&#10;A -> a | ε&#10;B -> b"></textarea>
+    <p class="syntax-hint">
+      Format: <code>A -> α | β</code>. Use <code>ε</code> or <code>eps</code> for epsilon.
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="basic">Basic</button>
+      <button class="example-btn" data-ex="nullable">Nullable</button>
+      <button class="example-btn" data-ex="long">Long rules</button>
+      <button class="example-btn" data-ex="unit">Unit prods</button>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn" id="convertBtn">Convert to CNF</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script src="../shared/grammar-core.js"></script>
+<script>
+const GrammarCore = globalThis.ParseLabGrammarCore;
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function renderGrammar(nts, prods) {
+  const mx = Math.max(...nts.map(n => n.length), 0);
+  return nts.map(nt => {
+    const ps = prods.get(nt); if (!ps || !ps.length) return '';
+    const rhs = ps.map(p => esc(GrammarCore.prodToStr(p))).join(' <span class="sep">|</span> ');
+    return `<div class="grammar-rule">
+      <span class="lhs">${esc(nt)}${'&nbsp;'.repeat(mx - nt.length)}</span>
+      <span class="arr">→</span>
+      <span class="rhs">${rhs}</span>
+    </div>`;
+  }).join('');
+}
+
+function grammarToText(nts, prods) {
+  return nts.map(nt => { const ps = prods.get(nt); return ps ? `${nt} -> ${ps.map(pStr).join(' | ')}` : ''; }).filter(Boolean).join('\n');
+}
+
+const STEP_INFO = {
+  START: { label: 'START', title: 'New Start Symbol',           desc: 'If the start symbol appears on a RHS, add a fresh start symbol S₀ → S.' },
+  DEL:   { label: 'DEL',   title: 'ε-Production Elimination',   desc: 'Find all nullable symbols and remove ε-productions, adding new combinations.' },
+  UNIT:  { label: 'UNIT',  title: 'Unit Production Elimination', desc: 'Remove unit productions A → B by following unit chains.' },
+  TERM:  { label: 'TERM',  title: 'Terminal Wrapping',          desc: 'In productions of length ≥ 2, replace each terminal a with a new non-terminal Tₐ → a.' },
+  BIN:   { label: 'BIN',   title: 'Binarization',               desc: 'Split productions of length > 2 into binary rules by introducing new non-terminals.' },
+};
+
+function renderStepCard(name, result, idx) {
+  const info = STEP_INFO[name];
+  const applied = result.changed;
+
+  let body = `<div class="step-desc">${info.desc}</div>`;
+
+  if (!applied) {
+    body += `<div class="step-desc" style="color:var(--muted);font-style:italic;">No change needed.</div>`;
+  } else {
+    // Step-specific content
+    if (name === 'START') {
+      body += renderChangeGroup('Added', result.added.map(r => `<span class="change-rule added">${esc(r)}</span>`));
+    }
+    if (name === 'DEL') {
+      body += `<div class="nullable-list">Nullable: { ${result.nullable.map(esc).join(', ')} }</div>`;
+      if (result.removedEps.length) body += renderChangeGroup('Removed', result.removedEps.map(r => `<span class="change-rule removed">${esc(r)}</span>`));
+      if (result.addedRules.length) body += renderChangeGroup('Added', result.addedRules.map(r => `<span class="change-rule added">${esc(r)}</span>`));
+    }
+    if (name === 'UNIT') {
+      if (result.removedUnit.length) body += renderChangeGroup('Removed', result.removedUnit.map(r => `<span class="change-rule removed">${esc(r)}</span>`));
+      if (result.addedRules.length)  body += renderChangeGroup('Added',   result.addedRules.map(r => `<span class="change-rule added">${esc(r)}</span>`));
+    }
+    if (name === 'TERM') {
+      if (result.addedNTs.length) body += renderChangeGroup('New terminal NTs', result.addedNTs.map(r => `<span class="change-rule added">${esc(r)}</span>`));
+      if (result.modifiedRules.length) body += renderChangeGroup('Modified', result.modifiedRules.map(r =>
+        `<span class="change-rule removed">${esc(r.before)}</span><span class="change-rule added">${esc(r.after)}</span>`
+      ));
+    }
+    if (name === 'BIN') {
+      if (result.splitRules.length) body += renderChangeGroup('Split', result.splitRules.map(r => `<span class="change-rule removed">${esc(r)}</span>`));
+      if (result.addedRules.length) body += renderChangeGroup('Added', result.addedRules.map(r => `<span class="change-rule added">${esc(r)}</span>`));
+    }
+  }
+
+  return `<div class="step">
+    <div class="step-card">
+      <div class="step-header">
+        <span class="step-num">${idx}</span>
+        <span class="step-name">${info.title}</span>
+        <span class="step-badge ${applied ? 'applied' : 'skipped'}">${applied ? 'Applied' : 'Skipped'}</span>
+      </div>
+      <div class="step-body">${body}</div>
+    </div>
+  </div>`;
+}
+
+function renderChangeGroup(label, items) {
+  return `<div class="change-group">
+    <div class="change-label">${label}</div>
+    ${items.join('')}
+  </div>`;
+}
+
+// ─── Examples ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = {
+  basic:    `S -> a S b | a b`,
+  nullable: `S -> A B\nA -> a | ε\nB -> b | ε`,
+  long:     `S -> A B C D\nA -> a\nB -> b\nC -> c\nD -> d`,
+  unit:     `S -> A | a\nA -> B | b\nB -> c`,
+};
+
+document.querySelectorAll('.example-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    document.getElementById('grammarInput').value = EXAMPLES[btn.dataset.ex];
+    run();
+  })
+);
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('convertBtn').addEventListener('click', run);
+
+function run() {
+  const text  = document.getElementById('grammarInput').value.trim();
+  const outEl = document.getElementById('output');
+  if (!text) { outEl.innerHTML = ''; return; }
+
+  let parsed;
+  try { parsed = GrammarCore.parseMapGrammar(text); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+
+  let { nts, prods } = parsed;
+  const steps = [];
+
+  const s1 = GrammarCore.stepSTART(nts, prods); steps.push(['START', s1]);
+  if (s1.changed) { nts = s1.nts; prods = s1.prods; }
+
+  const s2 = GrammarCore.stepDEL(nts, prods);   steps.push(['DEL', s2]);
+  if (s2.changed) { nts = s2.nts; prods = s2.prods; }
+
+  const s3 = GrammarCore.stepUNIT(nts, prods);  steps.push(['UNIT', s3]);
+  if (s3.changed) { nts = s3.nts; prods = s3.prods; }
+
+  const s4 = GrammarCore.stepTERM(nts, prods);  steps.push(['TERM', s4]);
+  if (s4.changed) { nts = s4.nts; prods = s4.prods; }
+
+  const s5 = GrammarCore.stepBIN(nts, prods);   steps.push(['BIN', s5]);
+  if (s5.changed) { nts = s5.nts; prods = s5.prods; }
+
+  const anyChange = steps.some(([, r]) => r.changed);
+
+  let html = '';
+
+  // Status
+  html += anyChange
+    ? `<div class="status ok"><span class="dot"></span>Converted to CNF — ${steps.filter(([,r])=>r.changed).length} step${steps.filter(([,r])=>r.changed).length>1?'s':''} applied</div>`
+    : `<div class="status ok"><span class="dot"></span>Grammar is already in CNF</div>`;
+
+  // Steps
+  html += '<div class="steps">';
+  steps.forEach(([name, result], i) => { html += renderStepCard(name, result, i + 1); });
+  html += '</div>';
+
+  // Result
+  html += `<div class="section-hd" style="margin-top:1.5rem;">Result (CNF)</div>
+  <div class="result-panel">
+    <button class="result-copy" id="copyResult">Copy</button>
+    ${renderGrammar(nts, prods)}
+  </div>
+  <span class="copy-confirm" id="copyConfirm">Copied!</span>`;
+
+  outEl.innerHTML = html;
+
+  const txt = GrammarCore.grammarToText(nts, prods);
+  document.getElementById('copyResult').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(txt);
+      const c = document.getElementById('copyConfirm');
+      c.style.opacity = '1';
+      setTimeout(() => c.style.opacity = '0', 1800);
+    } catch {}
+  });
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

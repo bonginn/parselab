@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Regex → NFA · ParseLab</title>
+<meta name="description" content="Convert a regular expression to an ε-NFA using Thompson's construction. Visualises the automaton.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* ── Regex input ── */
+  .regex-input {
+    width: 100%; font-family: var(--mono); font-size: 1.1rem;
+    letter-spacing: 0.04em;
+    padding: 0.7rem 1rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); outline: none;
+    transition: border-color 0.15s;
+  }
+  .regex-input:focus { border-color: var(--accent); }
+
+  /* ── NFA diagram ── */
+  .nfa-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden;
+    margin-bottom: 1.5rem;
+  }
+  .nfa-svg-wrap {
+    overflow-x: auto; padding: 1.25rem;
+    min-height: 120px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .nfa-svg-wrap svg {
+    display: block; width: 100%; height: auto;
+    max-height: 500px;
+  }
+  .nfa-meta {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+    padding: 0.65rem 1.25rem;
+    border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .nfa-meta strong { color: var(--text); }
+
+  /* ── Transition table ── */
+  .table-toggle {
+    background: none; border: none; cursor: pointer; padding: 0;
+    font-size: 0.8rem; color: var(--accent); font-family: inherit;
+    margin-bottom: 0.75rem; display: inline-block;
+  }
+  .table-toggle:hover { text-decoration: underline; }
+
+  .trans-table {
+    width: 100%; border-collapse: collapse;
+    font-family: var(--mono); font-size: 0.82rem;
+  }
+  .trans-table th {
+    text-align: left; padding: 0.45rem 1rem;
+    font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .trans-table td {
+    padding: 0.4rem 1rem; border-bottom: 1px solid var(--border); color: var(--text);
+  }
+  .trans-table tr:last-child td { border-bottom: none; }
+  .trans-table .col-state { color: var(--accent); font-weight: 600; }
+  .trans-table .col-eps   { color: var(--muted); }
+  .col-tag {
+    font-size: 0.68rem; font-family: -apple-system, sans-serif;
+    padding: 0.1rem 0.45rem; border-radius: 999px;
+    font-weight: 600; letter-spacing: 0.03em;
+  }
+  .tag-start  { background: var(--accent-soft); color: var(--accent); }
+  .tag-accept { background: rgba(34,197,94,0.1); color: #16a34a; }
+  [data-theme="dark"] .tag-accept { color: #4ade80; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>Regex → NFA</h1>
+  <p class="subtitle">Converts a regular expression to an ε-NFA using Thompson's construction.</p>
+
+  <div class="panel">
+    <h2>Regular expression</h2>
+    <input id="regexInput" class="regex-input" type="text"
+      spellcheck="false" autocomplete="off" placeholder="(a|b)*abb">
+    <p class="syntax-hint">
+      <code>ab</code> concat &nbsp;·&nbsp;
+      <code>a|b</code> union &nbsp;·&nbsp;
+      <code>a*</code> zero-or-more &nbsp;·&nbsp;
+      <code>a+</code> one-or-more &nbsp;·&nbsp;
+      <code>a?</code> optional &nbsp;·&nbsp;
+      <code>()</code> group &nbsp;·&nbsp;
+      <code>.</code> any char &nbsp;·&nbsp;
+      <code>\*</code> escape
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="classic">(a|b)*abb</button>
+      <button class="example-btn" data-ex="quant">a+b?c*</button>
+      <button class="example-btn" data-ex="nested">(ab|cd)*</button>
+      <button class="example-btn" data-ex="digits">(0|1|2)+</button>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn" id="buildBtn">Build NFA</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<!-- Viz.js (Graphviz WASM) -->
+<script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3/lib/viz-standalone.js"></script>
+<script src="../shared/regex-core.js"></script>
+<script>
+const RegexCore = globalThis.ParseLabRegexCore;
+
+// ─── NFA → Graphviz DOT ───────────────────────────────────────────────────────
+
+function toDot(nfa) {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+  // Colour scheme
+  const C = dark ? {
+    bg:    'transparent',
+    node:  { fill:'#1e293b', stroke:'#475569', font:'#cbd5e1' },
+    start: { fill:'#1e3a5f', stroke:'#3b82f6', font:'#93c5fd' },
+    acc:   { fill:'#172554', stroke:'#60a5fa', font:'#93c5fd' },
+    arr:   '#3b82f6',
+    edge:  { stroke:'#3b82f6', font:'#60a5fa' },
+    eps:   { stroke:'#4b5563', font:'#6b7280'  },
+  } : {
+    bg:    'transparent',
+    node:  { fill:'#f8fafc', stroke:'#cbd5e1', font:'#334155' },
+    start: { fill:'#eff6ff', stroke:'#93c5fd', font:'#1e40af' },
+    acc:   { fill:'#dbeafe', stroke:'#2563eb', font:'#1d4ed8' },
+    arr:   '#2563eb',
+    edge:  { stroke:'#2563eb', font:'#1d4ed8' },
+    eps:   { stroke:'#94a3b8', font:'#94a3b8'  },
+  };
+
+  const { start, accept, edges } = nfa;
+
+  // Collect states
+  const states = new Set([start, accept]);
+  for (const e of edges) { states.add(e.from); states.add(e.to); }
+
+  // Merge parallel edges (same from→to) into one label
+  const eMap = new Map();
+  for (const e of edges) {
+    const k = `${e.from}→${e.to}`;
+    if (!eMap.has(k)) eMap.set(k, { from:e.from, to:e.to, syms:[] });
+    if (!eMap.get(k).syms.includes(e.sym)) eMap.get(k).syms.push(e.sym);
+  }
+
+  const lines = [
+    `digraph {`,
+    `  bgcolor="${C.bg}"`,
+    `  rankdir=LR`,
+    `  node [fontname="Courier" fontsize=13]`,
+    `  edge [fontname="Courier" fontsize=12]`,
+    ``,
+    `  // entry arrow`,
+    `  __i [shape=point width=0.2 color="${C.arr}"]`,
+    `  __i -> q${start} [color="${C.arr}" penwidth=2 arrowsize=0.9]`,
+    ``
+  ];
+
+  // States
+  for (const s of [...states].sort((a,b) => a-b)) {
+    const isAcc = s === accept;
+    const isSt  = s === start;
+    const col   = isAcc ? C.acc : isSt ? C.start : C.node;
+    const shape = isAcc ? 'doublecircle' : 'circle';
+    const pw    = isAcc ? 2.5 : isSt ? 1.8 : 1.2;
+    lines.push(
+      `  q${s} [label="q${s}" shape=${shape} style=filled ` +
+      `fillcolor="${col.fill}" color="${col.stroke}" fontcolor="${col.font}" penwidth=${pw}]`
+    );
+  }
+  lines.push('');
+
+  // Edges
+  for (const { from, to, syms } of eMap.values()) {
+    const allEps = syms.every(s => s === 'ε');
+    // Put ε last in mixed labels (rare but possible)
+    const ordered = [...syms.filter(s => s !== 'ε'), ...syms.filter(s => s === 'ε')];
+    const label   = ordered.join(', ').replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+
+    if (allEps) {
+      lines.push(
+        `  q${from} -> q${to} [label="ε" style=dashed ` +
+        `color="${C.eps.stroke}" fontcolor="${C.eps.font}" arrowsize=0.8]`
+      );
+    } else {
+      lines.push(
+        `  q${from} -> q${to} [label="${label}" ` +
+        `color="${C.edge.stroke}" fontcolor="${C.edge.font}" penwidth=1.8 arrowsize=0.9]`
+      );
+    }
+  }
+
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ─── Transition table ─────────────────────────────────────────────────────────
+
+function renderTransTable(nfa) {
+  const { start, accept, edges } = nfa;
+
+  // (from, sym) → Set<to>
+  const rows = new Map();
+  for (const e of edges) {
+    const k = `${e.from}\0${e.sym}`;
+    if (!rows.has(k)) rows.set(k, { from:e.from, sym:e.sym, tos:new Set() });
+    rows.get(k).tos.add(e.to);
+  }
+
+  const sorted = [...rows.values()].sort((a,b) => {
+    if (a.from !== b.from) return a.from - b.from;
+    if (a.sym === 'ε' && b.sym !== 'ε') return 1;
+    if (a.sym !== 'ε' && b.sym === 'ε') return -1;
+    return a.sym < b.sym ? -1 : 1;
+  });
+
+  let html = `<div class="table-wrap">
+    <table class="trans-table">
+      <thead><tr>
+        <th>State</th><th>Symbol</th><th>Next state(s)</th><th></th>
+      </tr></thead><tbody>`;
+
+  for (const { from, sym, tos } of sorted) {
+    const isEps  = sym === 'ε';
+    const tosStr = [...tos].sort((a,b)=>a-b).map(t=>`q${t}`).join(', ');
+    const tags   = [
+      from === start  ? `<span class="col-tag tag-start">start</span>`  : '',
+      from === accept ? `<span class="col-tag tag-accept">accept</span>` : ''
+    ].join(' ');
+    html += `<tr>
+      <td class="col-state">q${from}</td>
+      <td class="${isEps ? 'col-eps' : ''}">${sym}</td>
+      <td>${tosStr}</td>
+      <td>${tags}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+// ─── Viz.js instance ──────────────────────────────────────────────────────────
+
+let vizInst = null;
+Viz.instance().then(v => { vizInst = v; }).catch(e => console.error('Viz.js failed', e));
+
+// ─── Examples ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = {
+  classic: '(a|b)*abb',
+  quant:   'a+b?c*',
+  nested:  '(ab|cd)*',
+  digits:  '(0|1|2)+'
+};
+
+document.querySelectorAll('.example-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    document.getElementById('regexInput').value = EXAMPLES[btn.dataset.ex];
+    run();
+  })
+);
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('buildBtn').addEventListener('click', run);
+document.getElementById('regexInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') run();
+});
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function run() {
+  const pattern = document.getElementById('regexInput').value;
+  const outEl   = document.getElementById('output');
+  if (!pattern.trim()) { outEl.innerHTML = ''; return; }
+
+  // Parse
+  let nfa;
+  try { nfa = RegexCore.buildRegexNFA(pattern); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+
+  // Stats
+  const allStates = new Set([nfa.start, nfa.accept]);
+  for (const e of nfa.edges) { allStates.add(e.from); allStates.add(e.to); }
+  const stateCount = allStates.size;
+  const transCount = nfa.edges.length;
+
+  if (!vizInst) {
+    outEl.innerHTML = `<div class="error-box">Visualization library is still loading — please try again in a moment.</div>`;
+    return;
+  }
+
+  // Render
+  let svgEl;
+  try {
+    svgEl = vizInst.renderSVGElement(toDot(nfa));
+  } catch (e) {
+    outEl.innerHTML = `<div class="error-box">Graph render error: ${esc(String(e))}</div>`;
+    return;
+  }
+
+  // Make SVG responsive
+  svgEl.removeAttribute('width');
+  svgEl.removeAttribute('height');
+  svgEl.style.cssText = 'display:block;width:100%;height:auto;';
+
+  // Build output
+  outEl.innerHTML = `<div class="section-hd">NFA</div>`;
+
+  const card = document.createElement('div');
+  card.className = 'nfa-card';
+
+  const svgWrap = document.createElement('div');
+  svgWrap.className = 'nfa-svg-wrap';
+  svgWrap.appendChild(svgEl);
+  card.appendChild(svgWrap);
+
+  card.insertAdjacentHTML('beforeend', `
+    <div class="nfa-meta">
+      <span><strong>${stateCount}</strong> states</span>
+      <span><strong>${transCount}</strong> transitions</span>
+      <span>start: <strong>q${nfa.start}</strong></span>
+      <span>accept: <strong>q${nfa.accept}</strong></span>
+    </div>
+  `);
+  outEl.appendChild(card);
+
+  // Transition table (collapsed)
+  const toggleBtn = document.createElement('button');
+  toggleBtn.className = 'table-toggle';
+  toggleBtn.textContent = 'Show transition table ↓';
+  outEl.appendChild(toggleBtn);
+
+  const tableDiv = document.createElement('div');
+  tableDiv.innerHTML = renderTransTable(nfa);
+  tableDiv.style.display = 'none';
+  outEl.appendChild(tableDiv);
+
+  toggleBtn.addEventListener('click', () => {
+    const show = tableDiv.style.display === 'none';
+    tableDiv.style.display = show ? '' : 'none';
+    toggleBtn.textContent  = show ? 'Hide transition table ↑' : 'Show transition table ↓';
+  });
+
+  // "Copy for NFA→DFA" button
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn secondary';
+  copyBtn.textContent = 'Copy for NFA→DFA →';
+  const copyWrap = document.createElement('div');
+  copyWrap.style.cssText = 'margin-top:0.75rem;';
+  copyWrap.appendChild(copyBtn);
+  outEl.appendChild(copyWrap);
+
+  copyBtn.addEventListener('click', async () => {
+    // Serialise NFA in the format expected by the NFA→DFA tool
+    const lines = [
+      `start: ${nfa.start}`,
+      `accept: ${nfa.accept}`,
+    ];
+    for (const e of nfa.edges) lines.push(`${e.from} ${e.sym} ${e.to}`);
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      copyBtn.textContent = 'Copied! ✓';
+      setTimeout(() => { copyBtn.textContent = 'Copy for NFA→DFA →'; }, 1800);
+    } catch {}
+  });
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

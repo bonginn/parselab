@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LL(1) Parsing Table · ParseLab</title>
+<meta name="description" content="Build the LL(1) parsing table from a context-free grammar and detect conflicts.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .container { max-width: 960px; }
+  th, td { border-right: 1px solid var(--border); }
+  th:last-child, td:last-child { border-right: none; }
+  thead th { position: sticky; top: 0; }
+  td.nt { background: var(--bg); white-space: nowrap; }
+  .term-col {
+    color: var(--text); font-weight: 500;
+    text-transform: none; letter-spacing: 0;
+    font-family: var(--mono); font-size: 0.85rem;
+  }
+  .arrow { color: var(--muted); margin: 0 0.25rem; }
+  .conflict { background: var(--warn-bg); }
+  .conflict-marker {
+    display: inline-block; background: var(--error); color: #fff;
+    font-size: 0.7rem; padding: 0.05rem 0.4rem; border-radius: 4px;
+    margin-bottom: 0.3rem;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-weight: 600; letter-spacing: 0.03em;
+  }
+  .prod-line { display: block; line-height: 1.55; }
+  .prod-line + .prod-line { margin-top: 0.2rem; }
+  .ff-table td.set { font-size: 0.88rem; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>LL(1) Parsing Table</h1>
+  <p class="subtitle">Build the LL(1) parsing table from a context-free grammar. Conflicts are highlighted.</p>
+
+  <div class="panel">
+    <h2>Grammar</h2>
+    <textarea id="input" spellcheck="false" autocomplete="off">E -> T E'
+E' -> + T E' | ε
+T -> F T'
+T' -> * F T' | ε
+F -> ( E ) | id</textarea>
+    <p class="syntax-hint">
+      Format: <code>A -> α | β</code>. Tokens are space-separated. Use <code>ε</code> or <code>eps</code> for epsilon.
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="arith">Arithmetic</button>
+      <button class="example-btn" data-ex="ifelse">If-else (conflict)</button>
+      <button class="example-btn" data-ex="leftrec">Left-recursive (conflict)</button>
+      <button class="example-btn" data-ex="list">List</button>
+    </div>
+    <div class="control-row">
+      <label for="startSymbol">Start symbol:</label>
+      <input type="text" id="startSymbol" placeholder="auto (first LHS)">
+    </div>
+  </div>
+
+  <div id="results"><div class="panel"><div class="empty-state">Enter a grammar above to compute the table</div></div></div>
+</div>
+
+<script src="../shared/grammar-core.js"></script>
+<script>
+const inputEl   = document.getElementById('input');
+const startEl   = document.getElementById('startSymbol');
+const resultsEl = document.getElementById('results');
+
+const GrammarCore = globalThis.ParseLabGrammarCore;
+const EPS = GrammarCore.EPS;
+const END = GrammarCore.END;
+
+const EXAMPLES = {
+  arith:   `E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id`,
+  ifelse:  `S -> i E t S S' | a\nS' -> e S | ε\nE -> b`,
+  leftrec: `E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id`,
+  list:    `L -> E L'\nL' -> , E L' | ε\nE -> id`
+};
+
+document.querySelectorAll('.example-btn').forEach(btn => {
+  btn.addEventListener('click', () => { inputEl.value = EXAMPLES[btn.dataset.ex]; startEl.value = ''; compute(); });
+});
+
+let debounceTimer;
+function scheduleCompute() { clearTimeout(debounceTimer); debounceTimer = setTimeout(compute, 200); }
+inputEl.addEventListener('input', scheduleCompute);
+startEl.addEventListener('input', scheduleCompute);
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSym(s) {
+  if (s === EPS) return '<span class="epsilon">ε</span>';
+  if (s === END) return '<span class="end-marker">$</span>';
+  return esc(s);
+}
+function renderSet(set) {
+  if (!set.size) return '<span class="epsilon">∅</span>';
+  return [...set].sort((a,b)=>a===EPS?1:b===EPS?-1:a===END?1:b===END?-1:a.localeCompare(b)).map(fmtSym).join(', ');
+}
+function fmtRhs(rhs) { return rhs.length ? rhs.map(esc).join(' ') : '<span class="epsilon">ε</span>'; }
+function fmtProd(p) { return `${esc(p.lhs)}<span class="arrow">→</span>${fmtRhs(p.rhs)}`; }
+
+function compute() {
+  const text = inputEl.value;
+  if (!text.trim()) { resultsEl.innerHTML = '<div class="panel"><div class="empty-state">Enter a grammar above to compute the table</div></div>'; return; }
+  try {
+    const { productions, order, nonTerminals, terminals } = GrammarCore.parseGrammar(text);
+    const start = startEl.value.trim() || order[0];
+    if (!nonTerminals.has(start)) throw new Error(`"${start}" is not a non-terminal`);
+
+    const first  = GrammarCore.computeFirst(productions, nonTerminals, order);
+    const follow = GrammarCore.computeFollow(productions, first, nonTerminals, order, start);
+    const table  = GrammarCore.buildLL1Table(productions, first, follow, nonTerminals, order);
+
+    let conflicts = 0;
+    for (const nt of order) for (const t of Object.keys(table[nt])) if (table[nt][t].length > 1) conflicts++;
+
+    const termCols = [...terminals].sort((a,b) => a.localeCompare(b));
+    termCols.push(END);
+
+    let html = conflicts > 0
+      ? `<div class="status bad"><span class="dot"></span>Not LL(1) — ${conflicts} conflict${conflicts>1?'s':''} detected</div>`
+      : `<div class="status ok"><span class="dot"></span>Grammar is LL(1)</div>`;
+
+    // FIRST / FOLLOW table
+    html += '<div class="panel"><h2>FIRST / FOLLOW</h2><div class="table-wrap"><table class="ff-table"><thead><tr><th>Non-terminal</th><th>FIRST</th><th>FOLLOW</th></tr></thead><tbody>';
+    for (const nt of order)
+      html += `<tr><td class="nt">${esc(nt)}${nt===start?' <span style="color:var(--muted);font-weight:400;font-size:0.72rem;">(start)</span>':''}</td><td class="set">${renderSet(first[nt])}</td><td class="set">${renderSet(follow[nt])}</td></tr>`;
+    html += '</tbody></table></div></div>';
+
+    // Parsing table
+    html += '<div class="panel"><h2>Parsing Table M[A, a]</h2><div class="table-wrap"><table><thead><tr><th></th>';
+    for (const t of termCols) html += `<th class="term-col">${fmtSym(t)}</th>`;
+    html += '</tr></thead><tbody>';
+    for (const nt of order) {
+      html += `<tr><td class="nt">${esc(nt)}</td>`;
+      for (const t of termCols) {
+        const cell = table[nt][t];
+        if (!cell || !cell.length) { html += '<td></td>'; continue; }
+        if (cell.length === 1) { html += `<td><span class="prod-line">${fmtProd(cell[0])}</span></td>`; continue; }
+        html += `<td class="conflict"><span class="conflict-marker">conflict</span>${cell.map(p=>`<span class="prod-line">${fmtProd(p)}</span>`).join('')}</td>`;
+      }
+      html += '</tr>';
+    }
+    html += '</tbody></table></div></div>';
+
+    resultsEl.innerHTML = html;
+  } catch(e) {
+    resultsEl.innerHTML = `<div class="panel"><div class="error-box">${esc(e.message)}</div></div>`;
+  }
+}
+
+compute();
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

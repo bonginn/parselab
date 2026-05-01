@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CYK Parser · ParseLab</title>
+<meta name="description" content="Parse a string with the CYK algorithm. Visualises the full DP table for any CNF grammar.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* ── Result banner ── */
+  .verdict {
+    display: flex; align-items: center; gap: 0.85rem;
+    padding: 0.9rem 1.25rem; border-radius: 10px;
+    font-size: 0.9rem; font-weight: 600;
+    margin-bottom: 1.75rem;
+  }
+  .verdict.accepted {
+    background: rgba(34,197,94,0.09);
+    border: 1px solid rgba(34,197,94,0.28);
+    color: #16a34a;
+  }
+  .verdict.rejected {
+    background: rgba(239,68,68,0.07);
+    border: 1px solid rgba(239,68,68,0.22);
+    color: #dc2626;
+  }
+  [data-theme="dark"] .verdict.accepted { color: #4ade80; background: rgba(34,197,94,0.07); }
+  [data-theme="dark"] .verdict.rejected { color: #f87171; background: rgba(239,68,68,0.06); }
+  .verdict-icon { font-size: 1.15rem; line-height: 1; }
+  .verdict-detail { font-weight: 400; font-size: 0.8rem; color: var(--muted); margin-top: 0.1rem; }
+
+  /* ── CYK table ── */
+  .cyk-wrap { overflow-x: auto; padding-bottom: 0.5rem; }
+
+  .cyk-table { display: inline-block; }
+
+  .cyk-row {
+    display: flex; gap: 5px; margin-bottom: 5px; align-items: stretch;
+  }
+
+  .len-label {
+    width: 52px; flex-shrink: 0;
+    font-family: var(--mono); font-size: 0.7rem; color: var(--muted);
+    display: flex; align-items: center; justify-content: flex-end;
+    padding-right: 8px;
+  }
+
+  .cyk-cell {
+    width: 72px; min-height: 66px; flex-shrink: 0;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    padding: 0.35rem 0.4rem; text-align: center;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .cyk-cell.ghost {
+    background: transparent; border-color: transparent;
+  }
+  .cyk-cell.empty { opacity: 0.38; }
+  .cyk-cell.has-start {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .cell-nts {
+    font-family: var(--mono); font-size: 0.76rem; font-weight: 600;
+    color: var(--text); line-height: 1.45; word-break: break-word;
+  }
+  .cyk-cell.has-start .cell-nts { color: var(--accent); }
+  .cell-nts.empty-sym { color: var(--muted); font-weight: 400; }
+  .cell-sub {
+    font-family: var(--mono); font-size: 0.65rem;
+    color: var(--muted); margin-top: 0.25rem;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+
+  .tok-row { display: flex; gap: 5px; margin-top: 3px; }
+  .tok-label {
+    width: 72px; flex-shrink: 0;
+    font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+    color: var(--accent); text-align: center;
+    padding: 0.3rem 0;
+  }
+  .tok-spacer { width: 52px; flex-shrink: 0; }
+
+  /* ── Input row ── */
+  .input-row {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 0.75rem; align-items: end; margin-top: 1.25rem;
+  }
+  .input-field-wrap label {
+    display: block; font-size: 0.78rem; font-weight: 600;
+    color: var(--muted); margin-bottom: 0.4rem;
+    text-transform: uppercase; letter-spacing: 0.06em;
+  }
+  .string-input {
+    width: 100%; font-family: var(--mono); font-size: 0.9rem;
+    padding: 0.6rem 0.85rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); outline: none;
+    transition: border-color 0.15s;
+  }
+  .string-input:focus { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>CYK Parser</h1>
+  <p class="subtitle">Visualise the CYK parse table for any grammar in Chomsky Normal Form.</p>
+
+  <div class="panel">
+    <h2>Grammar <span style="font-weight:400;color:var(--muted);font-size:0.78em;">(CNF)</span></h2>
+    <textarea id="grammarInput" rows="5" spellcheck="false" autocomplete="off"
+      placeholder="S -> A B | B C&#10;A -> B A | a&#10;B -> C C | b&#10;C -> A B | a"></textarea>
+    <p class="syntax-hint">
+      Must be in CNF: productions are either <code>A → a</code> or <code>A → B C</code>.
+      Use the <a href="/cnf/" style="color:var(--accent);">CFG → CNF</a> tool to convert first.
+    </p>
+
+    <div class="input-row">
+      <div class="input-field-wrap">
+        <label for="stringInput">Input string</label>
+        <input id="stringInput" class="string-input" type="text" spellcheck="false"
+          autocomplete="off" placeholder="b a a b b a">
+      </div>
+    </div>
+    <p class="syntax-hint" style="margin-top:0.5rem;">Space-separated tokens, e.g. <code>a b c</code></p>
+
+    <div class="examples" style="margin-top:0.75rem;">
+      <button class="example-btn" data-ex="classic">Classic</button>
+      <button class="example-btn" data-ex="anbn">aⁿbⁿ</button>
+      <button class="example-btn" data-ex="simple">Simple</button>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn" id="parseBtn">Parse</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script src="../shared/grammar-core.js"></script>
+<script>
+const GrammarCore = globalThis.ParseLabGrammarCore;
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Render table ─────────────────────────────────────────────────────────────
+
+function renderTable(dp, tokens, nts) {
+  const n = tokens.length;
+  const start = nts[0];
+  let html = '<div class="cyk-wrap"><div class="cyk-table">';
+
+  // Rows: len = n (top) down to len = 1 (bottom)
+  for (let len = n; len >= 1; len--) {
+    html += `<div class="cyk-row"><div class="len-label">len&nbsp;${len}</div>`;
+    for (let i = 0; i < n; i++) {
+      if (i + len > n) {
+        html += `<div class="cyk-cell ghost"></div>`;
+      } else {
+        const cell = dp[i][len];
+        const hasStart = cell.has(start);
+        const isEmpty  = cell.size === 0;
+        const ntsText  = isEmpty
+          ? `<span class="empty-sym">∅</span>`
+          : [...cell].map(esc).join(',<br>');
+        const subStr   = tokens.slice(i, i + len).join(' ');
+        html += `<div class="cyk-cell${hasStart ? ' has-start' : ''}${isEmpty ? ' empty' : ''}">
+          <div class="cell-nts">${ntsText}</div>
+          <div class="cell-sub" title="${esc(subStr)}">${esc(subStr)}</div>
+        </div>`;
+      }
+    }
+    html += '</div>';
+  }
+
+  // Token labels footer
+  html += `<div class="tok-row"><div class="tok-spacer"></div>`;
+  for (const t of tokens) html += `<div class="tok-label">${esc(t)}</div>`;
+  html += '</div>';
+
+  html += '</div></div>';
+  return html;
+}
+
+// ─── Examples ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = {
+  classic: {
+    grammar: `S -> A B | B C\nA -> B A | a\nB -> C C | b\nC -> A B | a`,
+    string:  `b a a b b a`
+  },
+  anbn: {
+    grammar: `S0 -> T_A S0_1 | T_A T_B\nS -> T_A S0_1 | T_A T_B\nT_A -> a\nT_B -> b\nS0_1 -> S T_B`,
+    string:  `a a b b`
+  },
+  simple: {
+    grammar: `S -> A B\nA -> a\nB -> b`,
+    string:  `a b`
+  }
+};
+
+document.querySelectorAll('.example-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    const ex = EXAMPLES[btn.dataset.ex];
+    document.getElementById('grammarInput').value = ex.grammar;
+    document.getElementById('stringInput').value  = ex.string;
+    run();
+  })
+);
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('parseBtn').addEventListener('click', run);
+document.getElementById('stringInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') run();
+});
+
+function run() {
+  const grammarText = document.getElementById('grammarInput').value.trim();
+  const stringText  = document.getElementById('stringInput').value.trim();
+  const outEl = document.getElementById('output');
+  if (!grammarText) { outEl.innerHTML = ''; return; }
+
+  let parsed;
+  try { parsed = GrammarCore.parseMapGrammar(grammarText); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+
+  const { nts, prods } = parsed;
+  const tokens = stringText ? stringText.trim().split(/\s+/) : [];
+  const start  = nts[0];
+
+  const { accepted, dp, n } = GrammarCore.runCYK(nts, prods, tokens);
+
+  let html = '';
+
+  // Verdict
+  if (accepted) {
+    html += `<div class="verdict accepted">
+      <span class="verdict-icon">✓</span>
+      <div>
+        <div>Accepted</div>
+        <div class="verdict-detail">"${esc(tokens.join(' '))}" ∈ L(${esc(start)})</div>
+      </div>
+    </div>`;
+  } else {
+    html += `<div class="verdict rejected">
+      <span class="verdict-icon">✗</span>
+      <div>
+        <div>Rejected</div>
+        <div class="verdict-detail">"${esc(tokens.join(' '))}" ∉ L(${esc(start)})</div>
+      </div>
+    </div>`;
+  }
+
+  // Table
+  if (n > 0 && dp) {
+    html += `<div class="section-hd">CYK Table</div>`;
+    html += renderTable(dp, tokens, nts);
+    html += `<p style="font-size:0.78rem;color:var(--muted);margin-top:0.6rem;line-height:1.6;">
+      Each cell shows which non-terminals can derive that substring.
+      <strong style="color:var(--accent)">Highlighted</strong> cells contain the start symbol <strong>${esc(start)}</strong>.
+      The top-left cell covers the full string — if it contains ${esc(start)}, the string is accepted.
+    </p>`;
+  } else if (n === 0) {
+    html += `<p style="font-size:0.875rem;color:var(--muted);">
+      Empty string — ${accepted ? `${esc(start)} → ε exists, accepted.` : `no ${esc(start)} → ε production, rejected.`}
+    </p>`;
+  }
+
+  outEl.innerHTML = html;
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

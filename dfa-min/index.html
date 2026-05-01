@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DFA Minimization · ParseLab</title>
+<meta name="description" content="Minimize a DFA using the table-filling algorithm. Shows distinguishability table and equivalence classes.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  /* ── Distinguishability table ── */
+  .dist-wrap { overflow-x: auto; margin-bottom: 1.5rem; }
+  .dist-table { display: inline-block; }
+  .dist-row   { display: flex; gap: 4px; margin-bottom: 4px; align-items: center; }
+
+  .dist-label, .dist-header {
+    width: 56px; height: 56px; flex-shrink: 0;
+    font-family: var(--mono); font-size: 0.78rem; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--accent);
+  }
+  .dist-corner { width: 56px; height: 56px; flex-shrink: 0; }
+  .dist-header { border-bottom: 2px solid var(--border); color: var(--accent); }
+
+  .dist-cell {
+    width: 56px; height: 56px; flex-shrink: 0;
+    border-radius: 7px; border: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    position: relative;
+  }
+  .dist-cell.ghost { background: transparent; border-color: transparent; }
+
+  /* Distinguished */
+  .dist-cell.marked {
+    background: rgba(239,68,68,0.08);
+    border-color: rgba(239,68,68,0.3);
+  }
+  [data-theme="dark"] .dist-cell.marked {
+    background: rgba(239,68,68,0.1);
+    border-color: rgba(239,68,68,0.25);
+  }
+  .cell-x {
+    font-size: 1rem; line-height: 1;
+    color: #dc2626;
+  }
+  [data-theme="dark"] .cell-x { color: #f87171; }
+  .cell-step {
+    position: absolute; top: 3px; right: 5px;
+    font-size: 0.55rem; font-family: var(--mono);
+    color: #dc2626; opacity: 0.7;
+  }
+  [data-theme="dark"] .cell-step { color: #f87171; }
+  .cell-sym {
+    font-family: var(--mono); font-size: 0.62rem;
+    color: #dc2626; margin-top: 1px; opacity: 0.85;
+  }
+  [data-theme="dark"] .cell-sym { color: #f87171; }
+
+  /* Equivalent */
+  .dist-cell.equiv {
+    background: rgba(34,197,94,0.07);
+    border-color: rgba(34,197,94,0.25);
+  }
+  [data-theme="dark"] .dist-cell.equiv {
+    background: rgba(34,197,94,0.07);
+    border-color: rgba(34,197,94,0.2);
+  }
+  .cell-eq {
+    font-size: 1.1rem; color: #16a34a;
+  }
+  [data-theme="dark"] .cell-eq { color: #4ade80; }
+
+  /* ── Equivalence classes ── */
+  .eq-classes {
+    display: flex; flex-wrap: wrap; gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .eq-class {
+    font-family: var(--mono); font-size: 0.82rem;
+    padding: 0.3rem 0.8rem; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--text);
+  }
+  .eq-class.is-accept {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .eq-class.is-start { font-weight: 700; }
+
+  /* ── DFA graph ── */
+  .min-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; margin-bottom: 1.5rem;
+  }
+  .min-svg-wrap {
+    overflow-x: auto; padding: 1.25rem;
+    display: flex; align-items: center; justify-content: center; min-height: 80px;
+  }
+  .min-svg-wrap svg { display: block; width: 100%; height: auto; max-height: 420px; }
+  .min-meta {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    font-family: var(--mono); font-size: 0.78rem; color: var(--muted);
+    padding: 0.65rem 1.25rem; border-top: 1px solid var(--border);
+    background: var(--bg);
+  }
+  .min-meta strong { color: var(--text); }
+
+  /* ── verdict ── */
+  .verdict {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.85rem 1.25rem; border-radius: 10px;
+    font-size: 0.88rem; font-weight: 600; margin-bottom: 1.5rem;
+  }
+  .verdict.already {
+    background: rgba(34,197,94,0.09); border: 1px solid rgba(34,197,94,0.28);
+    color: #16a34a;
+  }
+  .verdict.reduced {
+    background: var(--accent-soft); border: 1px solid rgba(37,99,235,0.25);
+    color: var(--accent);
+  }
+  [data-theme="dark"] .verdict.already { color: #4ade80; background: rgba(34,197,94,0.07); }
+
+  /* ── DFA input ── */
+  .dfa-input { font-family: var(--mono); font-size: 0.88rem; line-height: 1.7; }
+
+  .pipeline-hint {
+    font-size: 0.8rem; color: var(--muted); margin-bottom: 1.25rem; line-height: 1.6;
+  }
+  .pipeline-hint a { color: var(--accent); text-decoration: none; }
+  .pipeline-hint a:hover { text-decoration: underline; }
+
+  .col-tag {
+    font-size: 0.68rem; font-family: -apple-system, sans-serif;
+    padding: 0.1rem 0.45rem; border-radius: 999px; font-weight: 600;
+  }
+  .tag-start  { background: var(--accent-soft); color: var(--accent); }
+  .tag-accept { background: rgba(34,197,94,0.1); color: #16a34a; }
+  [data-theme="dark"] .tag-accept { color: #4ade80; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>DFA Minimization</h1>
+  <p class="subtitle">Minimize a DFA using the table-filling algorithm. Identifies equivalent states and merges them.</p>
+
+  <div class="panel">
+    <h2>DFA</h2>
+    <p class="pipeline-hint">
+      Use the <a href="/nfa-dfa/">NFA → DFA</a> tool and click
+      <strong>Copy for Minimization</strong> to paste here, or enter a DFA manually.
+    </p>
+    <textarea id="dfaInput" class="dfa-input" rows="10" spellcheck="false" autocomplete="off"
+      placeholder="start: A&#10;accept: C&#10;A a B&#10;A b C&#10;B a B&#10;B b D&#10;..."></textarea>
+    <p class="syntax-hint">
+      One line per transition: <code>from symbol to</code>.
+      Declare <code>start: q</code> and <code>accept: q[, q…]</code> at the top.
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="classic">Textbook</button>
+      <button class="example-btn" data-ex="anbn">aⁿbⁿ DFA</button>
+      <button class="example-btn" data-ex="already">Already minimal</button>
+    </div>
+    <div class="btn-row" style="margin-top:1rem;">
+      <button class="btn" id="minBtn">Minimize</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3/lib/viz-standalone.js"></script>
+<script src="../shared/automata-core.js"></script>
+<script>
+const AutomataCore = globalThis.ParseLabAutomataCore;
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ─── Logic lives in shared/automata-core.js ──────────────────────────────────
+
+// ─── DOT generation ───────────────────────────────────────────────────────────
+
+function toDot(minDfa, equivClasses) {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const C = dark ? {
+    bg:'transparent', arr:'#3b82f6',
+    node:  {fill:'#1e293b',stroke:'#475569',font:'#cbd5e1'},
+    start: {fill:'#1e3a5f',stroke:'#3b82f6',font:'#93c5fd'},
+    acc:   {fill:'#172554',stroke:'#60a5fa',font:'#93c5fd'},
+    edge:  {stroke:'#3b82f6',font:'#60a5fa'},
+  } : {
+    bg:'transparent', arr:'#2563eb',
+    node:  {fill:'#f8fafc',stroke:'#cbd5e1',font:'#334155'},
+    start: {fill:'#eff6ff',stroke:'#93c5fd',font:'#1e40af'},
+    acc:   {fill:'#dbeafe',stroke:'#2563eb',font:'#1d4ed8'},
+    edge:  {stroke:'#2563eb',font:'#1d4ed8'},
+  };
+
+  const { start, accepts, states, edges } = minDfa;
+
+  // Build class label map: representative → "{A,B}" or just "A"
+  const classLabel = new Map();
+  for (const cls of equivClasses) {
+    const label = cls.length > 1 ? `{${cls.join(',')}}` : cls[0];
+    classLabel.set(cls[0], label);
+  }
+
+  // Merge parallel edges
+  const eMap = new Map();
+  for (const e of edges) {
+    const k = `${e.from}→${e.to}`;
+    if (!eMap.has(k)) eMap.set(k, {from:e.from, to:e.to, syms:[]});
+    eMap.get(k).syms.push(e.sym);
+  }
+
+  // Sanitize state name for DOT node ID
+  const nodeId = s => 'N_' + String(s).replace(/[^a-zA-Z0-9_]/g, '_');
+
+  const lines = [
+    `digraph {`,
+    `  bgcolor="${C.bg}" rankdir=LR`,
+    `  node [fontname="Courier" fontsize=12]`,
+    `  edge [fontname="Courier" fontsize=11]`,
+    `  __i [shape=point width=0.2 color="${C.arr}"]`,
+    `  __i -> ${nodeId(start)} [color="${C.arr}" penwidth=2 arrowsize=0.9]`,
+    ``
+  ];
+
+  for (const s of states) {
+    const isAcc = accepts.has(s);
+    const isSt  = s === start;
+    const col   = isAcc ? C.acc : isSt ? C.start : C.node;
+    const shape = isAcc ? 'doublecircle' : 'circle';
+    const pw    = isAcc ? 2.5 : isSt ? 1.8 : 1.2;
+    const lbl   = (classLabel.get(s) || s).replace(/"/g, '\\"');
+    lines.push(
+      `  ${nodeId(s)} [label="${lbl}" shape=${shape} style=filled ` +
+      `fillcolor="${col.fill}" color="${col.stroke}" fontcolor="${col.font}" penwidth=${pw}]`
+    );
+  }
+  lines.push('');
+
+  for (const {from, to, syms} of eMap.values()) {
+    const lbl = syms.sort().join(', ').replace(/"/g,'\\"');
+    lines.push(
+      `  ${nodeId(from)} -> ${nodeId(to)} [label="${lbl}" ` +
+      `color="${C.edge.stroke}" fontcolor="${C.edge.font}" penwidth=1.8 arrowsize=0.9]`
+    );
+  }
+  lines.push('}');
+  return lines.join('\n');
+}
+
+// ─── Render distinguishability table ─────────────────────────────────────────
+
+function renderDistTable(stateArr, n, marked, info) {
+  // Display: rows = index 1..n-1, cols = index 0..n-2
+  // Cell (row=i, col=j) where j < i shows pair (j, i) → marked[j][i]
+  let html = '<div class="dist-wrap"><div class="dist-table">';
+
+  // Header row
+  html += `<div class="dist-row"><div class="dist-corner"></div>`;
+  for (let j = 0; j < n-1; j++)
+    html += `<div class="dist-header">${esc(stateArr[j])}</div>`;
+  html += '</div>';
+
+  // Data rows
+  for (let i = 1; i < n; i++) {
+    html += `<div class="dist-row"><div class="dist-label">${esc(stateArr[i])}</div>`;
+    for (let j = 0; j < n-1; j++) {
+      if (j >= i) {
+        html += `<div class="dist-cell ghost"></div>`;
+      } else {
+        // pair (j, i): marked[j][i]
+        const isM = marked[j][i];
+        const inf = info[j][i];
+        if (isM) {
+          const stepLabel = inf ? (inf.step === 0 ? '0' : String(inf.step)) : '';
+          const symLabel  = inf?.sym ?? 'base';
+          html += `<div class="dist-cell marked" title="Step ${stepLabel}: via ${symLabel}">
+            <span class="cell-x">✕</span>
+            <span class="cell-step">${esc(stepLabel)}</span>
+            <span class="cell-sym">${inf?.sym ? esc(inf.sym) : ''}</span>
+          </div>`;
+        } else {
+          html += `<div class="dist-cell equiv"><span class="cell-eq">≡</span></div>`;
+        }
+      }
+    }
+    html += '</div>';
+  }
+
+  html += '</div></div>';
+  return html;
+}
+
+// ─── Examples ─────────────────────────────────────────────────────────────────
+
+const EXAMPLES = {
+  classic: `start: A
+accept: C, D
+A a B
+A b E
+B a C
+B b F
+C a G
+C b A
+D a E
+D b H
+E a H
+E b E
+F a F
+F b G
+G a G
+G b G
+H a G
+H b C`,
+
+  anbn: `start: D0
+accept: D2
+D0 a D1
+D0 b D4
+D1 a D1
+D1 b D2
+D2 a D3
+D2 b D2
+D3 a D3
+D3 b D3
+D4 a D4
+D4 b D4`,
+
+  already: `start: 0
+accept: 2
+0 a 1
+0 b 0
+1 a 1
+1 b 2
+2 a 1
+2 b 0`,
+};
+
+document.querySelectorAll('.example-btn').forEach(btn =>
+  btn.addEventListener('click', () => {
+    document.getElementById('dfaInput').value = EXAMPLES[btn.dataset.ex];
+    run();
+  })
+);
+
+// ─── Viz.js ───────────────────────────────────────────────────────────────────
+
+let vizInst = null;
+Viz.instance().then(v => { vizInst = v; }).catch(e => console.error('Viz.js failed', e));
+
+// ─── Main ─────────────────────────────────────────────────────────────────────
+
+document.getElementById('minBtn').addEventListener('click', run);
+
+async function run() {
+  const text  = document.getElementById('dfaInput').value.trim();
+  const outEl = document.getElementById('output');
+  if (!text) { outEl.innerHTML = ''; return; }
+
+  let dfa;
+  try { dfa = AutomataCore.parseDFA(text); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`; return; }
+
+  // Preprocess
+  dfa = AutomataCore.removeUnreachableStates(dfa);
+  const origSize = dfa.states.size;
+  dfa = AutomataCore.makeCompleteDFA(dfa);
+
+  // Table-filling
+  const { stateArr, n, marked, info, accepts } = AutomataCore.tableFillMinimization(dfa);
+
+  // Equivalence classes (excluding dead state singleton)
+  const allClasses  = AutomataCore.findEquivalentClasses(stateArr, n, marked);
+  const liveClasses = allClasses.filter(cls => !(cls.length === 1 && cls[0] === AutomataCore.DEAD));
+
+  // Minimized DFA
+  const minDfa   = AutomataCore.buildMinimizedDFA(dfa, allClasses);
+  const minSize  = minDfa.states.size;
+  const reduced  = minSize < origSize;
+
+  if (!vizInst) {
+    outEl.innerHTML = `<div class="error-box">Visualization library loading — please try again.</div>`;
+    return;
+  }
+
+  let svgEl;
+  try { svgEl = vizInst.renderSVGElement(toDot(minDfa, liveClasses)); }
+  catch (e) { outEl.innerHTML = `<div class="error-box">Render error: ${esc(String(e))}</div>`; return; }
+
+  svgEl.removeAttribute('width'); svgEl.removeAttribute('height');
+  svgEl.style.cssText = 'display:block;width:100%;height:auto;';
+
+  outEl.innerHTML = '';
+
+  // Verdict banner
+  if (reduced) {
+    outEl.insertAdjacentHTML('beforeend', `
+      <div class="verdict reduced">
+        <span>Minimized: ${origSize} → ${minSize} states
+        (${origSize - minSize} state${origSize - minSize > 1 ? 's' : ''} merged)</span>
+      </div>`);
+  } else {
+    outEl.insertAdjacentHTML('beforeend', `
+      <div class="verdict already">
+        <span>✓ Already minimal — no equivalent states found.</span>
+      </div>`);
+  }
+
+  // Distinguishability table
+  outEl.insertAdjacentHTML('beforeend', `<div class="section-hd">Distinguishability Table</div>`);
+  outEl.insertAdjacentHTML('beforeend', renderDistTable(stateArr, n, marked, info));
+  outEl.insertAdjacentHTML('beforeend', `
+    <p style="font-size:0.78rem;color:var(--muted);margin-top:-0.75rem;margin-bottom:1.5rem;line-height:1.6;">
+      <span style="color:#dc2626">✕</span> = distinguishable (superscript = iteration round, label = distinguishing symbol).
+      Row 0 marks accept ↔ non-accept pairs.
+      <span style="color:#16a34a">≡</span> = equivalent (will be merged).
+    </p>`);
+
+  // Equivalence classes
+  outEl.insertAdjacentHTML('beforeend', `<div class="section-hd">Equivalence Classes</div>`);
+  outEl.insertAdjacentHTML('beforeend', `<div class="eq-classes">`);
+  for (const cls of liveClasses) {
+    const isAccept = cls.some(s => dfa.accepts.has(s));
+    const isStart  = cls.some(s => s === dfa.start);
+    const label    = `{${cls.join(', ')}}`;
+    const tags = [
+      isStart  ? `<span class="col-tag tag-start">start</span>`  : '',
+      isAccept ? `<span class="col-tag tag-accept">accept</span>` : '',
+    ].join(' ');
+    outEl.querySelector('.eq-classes').insertAdjacentHTML('beforeend',
+      `<div class="eq-class${isAccept?' is-accept':''}${isStart?' is-start':''}">
+        ${esc(label)} ${tags}
+      </div>`
+    );
+  }
+  outEl.insertAdjacentHTML('beforeend', `</div>`);
+
+  // Minimized DFA
+  outEl.insertAdjacentHTML('beforeend', `<div class="section-hd">Minimized DFA</div>`);
+
+  const card = document.createElement('div');
+  card.className = 'min-card';
+  const svgWrap = document.createElement('div');
+  svgWrap.className = 'min-svg-wrap';
+  svgWrap.appendChild(svgEl);
+  card.appendChild(svgWrap);
+  card.insertAdjacentHTML('beforeend', `
+    <div class="min-meta">
+      <span><strong>${minSize}</strong> states</span>
+      <span><strong>${minDfa.edges.length}</strong> transitions</span>
+      <span><strong>${minDfa.accepts.size}</strong> accept state${minDfa.accepts.size !== 1 ? 's' : ''}</span>
+    </div>`);
+  outEl.appendChild(card);
+
+  // Copy for NFA→DFA button (copy minimized DFA)
+  const copyBtn = document.createElement('button');
+  copyBtn.className = 'btn secondary';
+  copyBtn.textContent = 'Copy minimized DFA';
+  const copyWrap = document.createElement('div');
+  copyWrap.style.cssText = 'margin-top:0.75rem;';
+  copyWrap.appendChild(copyBtn);
+  outEl.appendChild(copyWrap);
+
+  copyBtn.addEventListener('click', async () => {
+    const lines = [
+      `start: ${minDfa.start}`,
+      `accept: ${[...minDfa.accepts].join(', ')}`,
+      ...minDfa.edges.map(e => `${e.from} ${e.sym} ${e.to}`)
+    ];
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      copyBtn.textContent = 'Copied! ✓';
+      setTimeout(() => { copyBtn.textContent = 'Copy minimized DFA'; }, 1800);
+    } catch {}
+  });
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

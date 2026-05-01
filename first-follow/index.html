@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FIRST / FOLLOW · ParseLab</title>
+<meta name="description" content="Compute FIRST and FOLLOW sets for a context-free grammar.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  td.set { color: var(--text); }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>FIRST / FOLLOW</h1>
+  <p class="subtitle">Compute FIRST and FOLLOW sets for a context-free grammar.</p>
+
+  <div class="panel">
+    <h2>Grammar</h2>
+    <textarea id="input" spellcheck="false" autocomplete="off">E -> T E'
+E' -> + T E' | ε
+T -> F T'
+T' -> * F T' | ε
+F -> ( E ) | id</textarea>
+    <p class="syntax-hint">
+      Format: <code>A -> α | β</code>. Tokens are space-separated. Use <code>ε</code> or <code>eps</code> for epsilon.
+    </p>
+    <div class="examples">
+      <button class="example-btn" data-ex="arith">Arithmetic</button>
+      <button class="example-btn" data-ex="ifelse">If-else</button>
+      <button class="example-btn" data-ex="list">List</button>
+    </div>
+    <div class="control-row">
+      <label for="startSymbol">Start symbol:</label>
+      <input type="text" id="startSymbol" placeholder="auto (first LHS)">
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Results</h2>
+    <div id="results"><div class="empty-state">Enter a grammar above to compute sets</div></div>
+  </div>
+</div>
+
+<script src="../shared/grammar-core.js"></script>
+<script>
+const inputEl   = document.getElementById('input');
+const startEl   = document.getElementById('startSymbol');
+const resultsEl = document.getElementById('results');
+
+const GrammarCore = globalThis.ParseLabGrammarCore;
+const EPS = GrammarCore.EPS;
+const END = GrammarCore.END;
+
+const EXAMPLES = {
+  arith: `E -> T E'\nE' -> + T E' | ε\nT -> F T'\nT' -> * F T' | ε\nF -> ( E ) | id`,
+  ifelse: `S -> i E t S S' | a\nS' -> e S | ε\nE -> b`,
+  list: `L -> E L'\nL' -> , E L' | ε\nE -> id`
+};
+
+document.querySelectorAll('.example-btn').forEach(btn => {
+  btn.addEventListener('click', () => { inputEl.value = EXAMPLES[btn.dataset.ex]; startEl.value = ''; compute(); });
+});
+
+let debounceTimer;
+function scheduleCompute() { clearTimeout(debounceTimer); debounceTimer = setTimeout(compute, 200); }
+inputEl.addEventListener('input', scheduleCompute);
+startEl.addEventListener('input', scheduleCompute);
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function fmtSym(s) {
+  if (s === EPS) return '<span class="epsilon">ε</span>';
+  if (s === END) return '<span class="end-marker">$</span>';
+  return esc(s);
+}
+function renderSet(set) {
+  if (!set.size) return '<span class="epsilon">∅</span>';
+  return [...set].sort((a,b) => a===EPS?1:b===EPS?-1:a===END?1:b===END?-1:a.localeCompare(b)).map(fmtSym).join(', ');
+}
+
+function compute() {
+  const text = inputEl.value;
+  if (!text.trim()) { resultsEl.innerHTML = '<div class="empty-state">Enter a grammar above to compute sets</div>'; return; }
+  try {
+    const { productions, order, nonTerminals } = GrammarCore.parseGrammar(text);
+    const start = startEl.value.trim() || order[0];
+    if (!nonTerminals.has(start)) throw new Error(`"${start}" is not a non-terminal`);
+    const first  = GrammarCore.computeFirst(productions, nonTerminals, order);
+    const follow = GrammarCore.computeFollow(productions, first, nonTerminals, order, start);
+    let html = '<table><thead><tr><th>Non-terminal</th><th>FIRST</th><th>FOLLOW</th></tr></thead><tbody>';
+    for (const nt of order) {
+      html += `<tr><td class="nt">${esc(nt)}${nt===start?' <span style="color:var(--muted);font-weight:400;font-size:0.72rem;">(start)</span>':''}</td><td class="set">${renderSet(first[nt])}</td><td class="set">${renderSet(follow[nt])}</td></tr>`;
+    }
+    resultsEl.innerHTML = html + '</tbody></table>';
+  } catch(e) {
+    resultsEl.innerHTML = `<div class="error-box">${esc(e.message)}</div>`;
+  }
+}
+
+compute();
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

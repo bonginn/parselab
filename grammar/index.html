@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grammar Transformer · ParseLab</title>
+<meta name="description" content="Eliminate left recursion and apply left factoring to a context-free grammar.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .out-section { margin-bottom: 2rem; }
+  .step-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 0.6rem;
+    font-family: var(--mono); font-size: 0.875rem;
+  }
+  .step-tag {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 0.75rem; font-weight: 500; color: var(--accent);
+    background: var(--accent-soft); display: inline-block;
+    padding: 0.15rem 0.6rem; border-radius: 999px;
+    margin-bottom: 0.7rem;
+  }
+  .step-before { color: var(--muted); text-decoration: line-through; margin-bottom: 0.3rem; line-height: 1.6; }
+  .step-arrow  { color: var(--muted); margin-bottom: 0.3rem; font-size: 0.8rem; }
+  .step-after  { color: var(--text); line-height: 1.8; }
+  .step-after .nt { color: var(--accent); font-weight: 600; }
+  .no-change   { color: var(--muted); font-size: 0.88rem; padding: 0.35rem 0; font-style: italic; }
+  .result-panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 1.25rem 1.5rem; position: relative;
+  }
+  .result-copy {
+    position: absolute; top: 1rem; right: 1rem;
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 0.3rem 0.7rem; font-size: 0.78rem; cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .result-copy:hover { color: var(--accent); border-color: var(--accent); }
+  .grammar-rule { display: flex; gap: 0.6rem; font-family: var(--mono); font-size: 0.9rem; padding: 0.2rem 0; align-items: baseline; }
+  .grammar-rule .lhs  { text-align: right; font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .grammar-rule .arr  { color: var(--muted); flex-shrink: 0; }
+  .grammar-rule .rhs  { color: var(--text); }
+  .grammar-rule .sep  { color: var(--muted); margin: 0 0.25rem; }
+  .copy-confirm { color: var(--success); font-size: 0.82rem; margin-left: 0.5rem; opacity: 0; transition: opacity 0.3s; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>Grammar Transformer</h1>
+  <p class="subtitle">Eliminate left recursion and apply left factoring to a context-free grammar.</p>
+
+  <div class="panel">
+    <textarea id="grammarInput" spellcheck="false" autocomplete="off" placeholder="E -> E + T | T
+T -> T * F | F
+F -> ( E ) | id"></textarea>
+    <div class="options-row" style="display:flex;flex-wrap:wrap;gap:1.25rem;margin:1rem 0 1.25rem;align-items:center;">
+      <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.9rem;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="doLR" checked style="width:15px;height:15px;accent-color:var(--accent);">
+        Eliminate Left Recursion
+      </label>
+      <label style="display:flex;align-items:center;gap:0.45rem;font-size:0.9rem;cursor:pointer;user-select:none;">
+        <input type="checkbox" id="doLF" checked style="width:15px;height:15px;accent-color:var(--accent);">
+        Left Factoring
+      </label>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="transformBtn">Transform</button>
+      <button class="btn secondary" id="exampleBtn">Load example</button>
+    </div>
+  </div>
+
+  <div id="output"></div>
+</div>
+
+<script src="../shared/grammar-core.js"></script>
+<script>
+const GrammarCore = globalThis.ParseLabGrammarCore;
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function renderProds(ps) { return ps.map(esc).join(' <span class="sep">|</span> '); }
+function renderStepCard(s, tag) {
+  const before=`${esc(s.nt)}  →  ${s.before.map(esc).join(' | ')}`;
+  const after=[`<span class="nt">${esc(s.nt)}</span>  →  ${renderProds(s.afterMain)}`,`<span class="nt">${esc(s.newNT)}</span>  →  ${renderProds(s.afterNew)}`].join('<br>');
+  return `<div class="step-card"><div class="step-tag">${tag}</div><div class="step-before">${before}</div><div class="step-arrow">↓</div><div class="step-after">${after}</div></div>`;
+}
+function renderGrammar(nts, prods) {
+  const mx=Math.max(...nts.map(n=>n.length),0);
+  return nts.map(nt=>{
+    const ps=prods.get(nt); if(!ps||!ps.length)return '';
+    return `<div class="grammar-rule"><span class="lhs">${esc(nt)}${'&nbsp;'.repeat(mx-nt.length)}</span><span class="arr">→</span><span class="rhs">${renderProds(ps.map(prodToStr))}</span></div>`;
+  }).join('');
+}
+function grammarToText(nts, prods) {
+  return nts.map(nt=>{const ps=prods.get(nt);return ps?`${nt} -> ${ps.map(prodToStr).join(' | ')}`:''}).filter(Boolean).join('\n');
+}
+
+document.getElementById('transformBtn').addEventListener('click', run);
+document.getElementById('exampleBtn').addEventListener('click', () => {
+  document.getElementById('grammarInput').value = `E -> E + T | T\nT -> T * F | F\nF -> ( E ) | id`;
+  run();
+});
+
+function run() {
+  const text=document.getElementById('grammarInput').value.trim();
+  const doLR=document.getElementById('doLR').checked, doLF=document.getElementById('doLF').checked;
+  const outEl=document.getElementById('output');
+  if (!text){outEl.innerHTML='';return;}
+  const {nts,prods,errs}=GrammarCore.parseTransformGrammar(text);
+  if (errs.length){outEl.innerHTML=`<div class="error-box">${errs.map(esc).join('<br>')}</div>`;return;}
+  if (!nts.length){outEl.innerHTML=`<div class="error-box">No valid productions found.</div>`;return;}
+  let cNTs=nts, cProds=prods, lrSteps=[], lfSteps=[];
+  if (doLR){const r=GrammarCore.eliminateLeftRecursion(cNTs,cProds);cNTs=r.nts;cProds=r.prods;lrSteps=r.steps;}
+  if (doLF){const r=GrammarCore.leftFactor(cNTs,cProds);cNTs=r.nts;cProds=r.prods;lfSteps=r.steps;}
+  let html='<div class="output">';
+  if (doLR) {
+    html+=`<div class="out-section"><div class="section-hd">Left Recursion Elimination</div>`;
+    html+=lrSteps.length?lrSteps.map(s=>renderStepCard(s,'direct left recursion')).join(''):`<p class="no-change">No left recursion detected.</p>`;
+    html+='</div>';
+  }
+  if (doLF) {
+    html+=`<div class="out-section"><div class="section-hd">Left Factoring</div>`;
+    html+=lfSteps.length?lfSteps.map(s=>renderStepCard(s,`factored prefix &ldquo;${esc(s.prefix)}&rdquo;`)).join(''):`<p class="no-change">No common prefixes found.</p>`;
+    html+='</div>';
+  }
+  html+=`<div class="out-section"><div class="section-hd">Result</div><div class="result-panel"><button class="result-copy" id="copyResult">Copy</button>${renderGrammar(cNTs,cProds)}</div><span class="copy-confirm" id="copyConfirm">Copied!</span></div></div>`;
+  outEl.innerHTML=html;
+  const txt=GrammarCore.grammarToText(cNTs,cProds);
+  document.getElementById('copyResult').addEventListener('click',async()=>{
+    try{await navigator.clipboard.writeText(txt);const c=document.getElementById('copyConfirm');c.style.opacity='1';setTimeout(()=>{c.style.opacity='0';},1800);}catch{}
+  });
+}
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

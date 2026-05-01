@@ -105,6 +105,20 @@
   }
   .tool-row:hover .tool-arrow { color: var(--accent); transform: translateX(3px); }
 
+  /* ── Mobile ── */
+  @media (max-width: 540px) {
+    .tool-row { flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: center; }
+    .tool-name { min-width: unset; flex: 1; }
+    .tool-arrow { order: 3; }
+    .tool-desc {
+      order: 4; flex-basis: 100%;
+      padding-left: calc(36px + 0.75rem);
+      font-size: 0.8rem;
+    }
+    .gh-corner { display: none; }
+    .site-header { padding-top: 0; }
+  }
+
   /* ── Roadmap ── */
   .roadmap {
     display: flex; flex-wrap: wrap; gap: 0.5rem;
@@ -121,7 +135,7 @@
   }
 
   /* ── GitHub corner ── */
-  .site-header { position: relative; }
+  .site-header { position: relative; padding-top: 2rem; }
   .gh-corner {
     position: absolute; top: 0; right: 0;
     display: inline-flex; flex-direction: column; align-items: flex-end;

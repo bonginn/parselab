@@ -88,6 +88,7 @@ F -> ( E ) | id"></textarea>
 <script src="../shared/grammar-core.js"></script>
 <script>
 const GrammarCore = globalThis.ParseLabGrammarCore;
+const prodToStr = GrammarCore.prodToStr;
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function renderProds(ps) { return ps.map(esc).join(' <span class="sep">|</span> '); }

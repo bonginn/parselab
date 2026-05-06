@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Feedback · ParseLab</title>
+<meta name="description" content="Share your feedback on ParseLab.">
+<script>
+(function() {
+  const t = localStorage.getItem('parselab-theme') || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.setAttribute('data-theme', t);
+})();
+</script>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/style.css">
+<style>
+  .field { margin-bottom: 1.25rem; }
+  .field label {
+    display: block; font-size: 0.9rem; font-weight: 600;
+    color: var(--text); margin-bottom: 0.5rem; letter-spacing: 0.01em;
+  }
+  .field select,
+  .field textarea {
+    width: 100%; font-family: var(--mono); font-size: 0.88rem;
+    padding: 0.6rem 0.85rem;
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text); outline: none;
+    transition: border-color 0.15s; box-sizing: border-box;
+  }
+  .field select:focus,
+  .field textarea:focus { border-color: var(--accent); }
+  .field textarea { resize: vertical; min-height: 80px; line-height: 1.6; }
+
+  .pill-group { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+  .pill-group input[type="radio"] { display: none; }
+  .pill-group label {
+    font-size: 0.8rem; font-family: var(--mono);
+    padding: 0.3rem 0.8rem; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--muted); cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+    font-weight: 400;
+  }
+  .pill-group input[type="radio"]:checked + label {
+    border-color: var(--accent); background: var(--accent-soft);
+    color: var(--accent); font-weight: 600;
+  }
+
+  .nps-group { display: flex; gap: 0.4rem; }
+  .nps-group input[type="radio"] { display: none; }
+  .nps-group label {
+    flex: 1; height: 38px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: var(--mono); font-size: 0.82rem; font-weight: 600;
+    border: 1px solid var(--border); border-radius: 8px;
+    background: var(--card); color: var(--muted); cursor: pointer;
+    transition: border-color 0.15s, background 0.15s, color 0.15s;
+  }
+  .nps-group input[type="radio"]:checked + label {
+    border-color: var(--accent); background: var(--accent-soft); color: var(--accent);
+  }
+  .nps-hint {
+    display: flex; justify-content: space-between;
+    font-size: 0.68rem; color: var(--muted);
+    margin-top: 0.35rem; font-family: var(--mono);
+  }
+
+  .success-msg {
+    display: none;
+    padding: 1rem 1.25rem; border-radius: 10px;
+    background: rgba(34,197,94,0.09); border: 1px solid rgba(34,197,94,0.28);
+    color: #16a34a; font-size: 0.9rem; font-weight: 600;
+    margin-top: 1rem;
+  }
+  [data-theme="dark"] .success-msg { color: #4ade80; }
+</style>
+</head>
+<body>
+<button id="themeToggle" class="theme-toggle" aria-label="Toggle theme"></button>
+<div class="container">
+  <a href="/" class="back">← parselab</a>
+  <h1>Feedback</h1>
+  <p class="subtitle">Takes about 1 minute. Helps make ParseLab better.</p>
+
+  <div class="panel">
+    <form id="feedbackForm" action="https://formspree.io/f/meenkrqp" method="POST">
+
+      <div class="field">
+        <label>How are you using ParseLab?</label>
+        <div class="pill-group">
+          <input type="radio" name="usage" id="u1" value="Self-study">
+          <label for="u1">Self-study</label>
+          <input type="radio" name="usage" id="u2" value="Coursework">
+          <label for="u2">Coursework</label>
+          <input type="radio" name="usage" id="u3" value="Teaching">
+          <label for="u3">Teaching</label>
+          <input type="radio" name="usage" id="u4" value="Other">
+          <label for="u4">Other</label>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Which tool do you use most?</label>
+        <select name="tool" required>
+          <option value="" disabled selected>— select —</option>
+          <option>FIRST / FOLLOW</option>
+          <option>LL(1) Parsing Table</option>
+          <option>Grammar Transformer</option>
+          <option>CFG → CNF</option>
+          <option>Regex → NFA</option>
+          <option>NFA → DFA</option>
+          <option>CYK Parser</option>
+          <option>DFA Minimization</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Any bugs or wrong results?</label>
+        <textarea name="bugs" placeholder="Describe what happened, or leave blank if none."></textarea>
+      </div>
+
+      <div class="field">
+        <label>Any new features or tools you'd like to see?</label>
+        <textarea name="feature_requests" placeholder="e.g. LR(1), parse tree visualisation, step-by-step derivation…"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Anything confusing or hard to use?</label>
+        <textarea name="ux" placeholder="Input format, output layout, missing explanation…"></textarea>
+      </div>
+
+      <div class="field">
+        <label>Would you recommend ParseLab to a classmate?</label>
+        <div class="nps-group">
+          <input type="radio" name="nps" id="nps1" value="1"><label for="nps1">1</label>
+          <input type="radio" name="nps" id="nps2" value="2"><label for="nps2">2</label>
+          <input type="radio" name="nps" id="nps3" value="3"><label for="nps3">3</label>
+          <input type="radio" name="nps" id="nps4" value="4"><label for="nps4">4</label>
+          <input type="radio" name="nps" id="nps5" value="5"><label for="nps5">5</label>
+          <input type="radio" name="nps" id="nps6" value="6"><label for="nps6">6</label>
+          <input type="radio" name="nps" id="nps7" value="7"><label for="nps7">7</label>
+          <input type="radio" name="nps" id="nps8" value="8"><label for="nps8">8</label>
+          <input type="radio" name="nps" id="nps9" value="9"><label for="nps9">9</label>
+          <input type="radio" name="nps" id="nps10" value="10"><label for="nps10">10</label>
+        </div>
+        <div class="nps-hint"><span>Not at all</span><span>Definitely</span></div>
+      </div>
+
+      <div class="btn-row" style="margin-top:1.5rem;">
+        <button type="submit" class="btn">Submit feedback</button>
+      </div>
+
+    </form>
+
+    <div class="success-msg" id="successMsg">
+      ✓ Thanks for the feedback!
+    </div>
+  </div>
+</div>
+
+<script>
+document.getElementById('feedbackForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const data = new FormData(this);
+  const res  = await fetch(this.action, { method: 'POST', body: data, headers: { Accept: 'application/json' } });
+  if (res.ok) {
+    this.style.display = 'none';
+    document.getElementById('successMsg').style.display = 'block';
+  }
+});
+</script>
+<script src="../shared/theme.js"></script>
+</body>
+</html>

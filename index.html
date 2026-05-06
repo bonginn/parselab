@@ -150,6 +150,20 @@
   .gh-corner .row2 { font-size: 0.68rem; color: var(--muted); letter-spacing: 0.02em; }
   .gh-corner:hover .row2 { color: var(--accent); opacity: 0.8; }
 
+  /* ── Feedback strip ── */
+  .feedback-strip {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.7rem 1.1rem; border-radius: 10px;
+    border: 1px dashed var(--border);
+    font-size: 0.84rem; color: var(--muted);
+    margin-bottom: 3rem;
+  }
+  .feedback-strip a {
+    color: var(--accent); text-decoration: none; font-weight: 500;
+    white-space: nowrap; margin-left: 1rem;
+  }
+  .feedback-strip a:hover { text-decoration: underline; }
+
   /* ── Footer ── */
   footer {
     margin-top: 5rem;
@@ -318,9 +332,15 @@
     </div>
   </section>
 
+  <!-- Feedback -->
+  <div class="feedback-strip">
+    <span>Found a bug or have a suggestion?</span>
+    <a href="/feedback/">Share feedback →</a>
+  </div>
+
   <footer>
-    <span>ParseLab · Vanilla JS · No server, no tracking</span>
-    <span class="footer-dot"><span class="pulse"></span>All processing is local</span>
+    <span>ParseLab · 2026</span>
+    <span class="footer-dot"><span class="pulse"></span>No server · No tracking</span>
   </footer>
 
 </div>
